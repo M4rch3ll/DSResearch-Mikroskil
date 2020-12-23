@@ -1,0 +1,537 @@
+---
+title: "Project DS - PMB"
+author: "Marchell"
+date: "8/31/2020"
+output: html_document
+---
+#clear variabel
+```{r}
+rm(list=ls())
+```
+
+
+```{r setup, include=FALSE}
+# setup chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  comment = "#>"
+)
+options(scipen = 9999)
+```
+
+```{r}
+# package for data wrangling/data manipulation
+library(dplyr)
+# package for working with date
+library(lubridate)
+# package for visualization
+library(ggplot2)
+# package untuk memahami script/R
+library(tidyverse)
+# tseries package for stationer data check
+library(tseries)
+# package Random Forest
+library(randomForest)
+# package forecast
+library(forecast)
+library(tsibble)
+library(TSstudio)
+library(caret)
+
+```
+#biargaerror 1
+# Data Preparation
+```{r}
+pmb <- read.csv ("pmbmikroskil.csv")
+pmb <- pmb[,2:11] #menampilkan indek kolom ke 2 sampai dengan 8
+#fungsi head digunakan utk menampilkan 6 data teratas
+head(pmb)
+```
+
+#biargaerror 2
+```{r}
+#fungsi tail digunakan utk menampilkan 6 data terbawah
+tail(pmb)
+```
+
+```{r}
+pmb
+```
+
+#biargaerror 3
+```{r}
+#fungsi untuk melihat summary dari data
+summary(pmb)
+```
+#biargaerror 4  
+#Terdapat 2 buah data NA
+
+```{r}
+pmbclean <- na.omit(pmb)
+summary(pmbclean)
+```
+
+##biargaerror 5  
+#untuk menentukan apakah data stationer atau tidak.
+```{r}
+adf.test(pmbclean$Jumlah.Mhs)
+```
+
+```{r}
+#fungsi ncol ini digunakan untuk melihat jumlah kolom data
+ncol(pmbclean)
+```
+```{r}
+#fungsi nrow ini digunakan untuk melihat jumlah baris data
+nrow(pmbclean)
+```
+```{r}
+#fungsi untuk menampilkan kolom tertentu dalam beberapa kolom data
+pmbclean %>% #ctrl + shift + m (piping/fungsi Pipe)
+  select(3) %>%
+  head()
+```
+
+```{r}
+#fungsi untuk menampilkan type data dari kolom atau variabel
+glimpse(pmbclean)
+```
+
+Karena Tanggal.Daftar dalam bentuk type data karakter, maka kita harus rubah kedalam bentuk type data (date) atau tanggal, dengan format dd.mm.yyy
+
+#biargaerror 6
+```{r}
+pmbnew <- pmbclean %>% 
+  mutate(Tanggal.Daftar = dmy (Tanggal.Daftar)) %>% 
+  arrange(Tanggal.Daftar)
+head(pmbnew)
+```
+
+```{r}
+glimpse(pmbnew)
+```
+#biargaerror 7 (jump ke line 207)  
+```{r}
+#merubah type data jumlah.mhs menjadi double
+pmbnew$Jumlah.Mhs <- as.numeric(as.factor(pmbnew$Jumlah.Mhs))
+glimpse(pmbnew)
+```
+
+# Visualisasi Exploratory Analysis
+```{r}
+pmbnew <- pmbnew[order(pmb$Tanggal.Daftar), ]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)", "MANAJEMEN (S-1)", "AKUNTANSI (S-1)")
+prodi <-  subset(pmbnew, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) +
+geom_point () +
+  geom_jitter()
+  labs(x="Tahun",
+      y="Jumlah Mahasiswa",
+      title="Jumlah Mahasiswa") +
+theme_minimal()
+```
+
+```{r}
+# kita ingin melakukan filter data dengan kondisi program studi Teknik Informatika dan Sistem Informasi saja
+pmbstmik <- pmbnew %>% 
+  filter(Program.Studi == "TEKNIK INFORMATIKA (S-1)" | Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(pmbstmik)
+  
+```
+
+```{r}
+pmbstie <- pmbnew %>% 
+  filter (Program.Studi == "MANAJEMEN (S-1)" | Program.Studi == "AKUNTANSI (S-1)")
+glimpse(pmbstie)
+```
+
+#Visualisasi data STMIK
+```{r}
+pmbstmik <- pmbstmik[order(pmbnew$Tanggal.Daftar),]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)")
+prodi <- subset(pmbstmik, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) + 
+  #geom_line(aes(color  = Program.Studi)) +
+  geom_point(aes(color = Program.Studi)) +
+  labs(x="Tahun",
+       y="Jumlah Mahasiswa",
+       title="Jumlah Mahasiswa STMIK") +
+  theme_minimal()
+```
+#menghitung jumlah.mhs yang mendaftar berdasarkan program studi
+```{r}
+pmbnew %>% 
+  group_by(Program.Studi) %>% 
+  count() %>% 
+  arrange(-n)
+```
+#filter mahasiswa program studi Sistem Informasi (SI)
+```{r}
+prodiSI <- pmbstmik %>% 
+  filter(Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(prodiSI)
+```
+
+```{r}
+head(prodiSI)
+```
+#range tanggal pendaftaran mahasiswa baru
+```{r}
+range(prodiSI$Tanggal.Daftar)
+```
+
+#tampilkan jumlah mahasiswa program studi Sistem Informasi yang mendaftar perhari
+```{r}
+daily_regis <- prodiSI %>% 
+  group_by(Tanggal.Daftar) %>% 
+  summarise(
+    jmlDaftar = sum (Jumlah.Mhs)
+  )
+daily_regis
+```
+
+#visualisasi pendaftaran perhari program studi Sistem Informasi
+```{r}
+daily_regis %>% 
+  ggplot(aes(x=Tanggal.Daftar, y=jmlDaftar)) +
+  geom_point() +
+  theme_minimal()
+```
+#biar gak error 8
+#Random Forest Forecasting
+
+```{r}
+glimpse(pmbclean)
+```
+#biar gak error 9
+```{r}
+pmbclean$Date <- as.Date(pmbclean$Tanggal.Daftar, format = '%d-%m-%Y')
+pmbclean$Program.Studi <- as.factor(pmbclean$Program.Studi)
+glimpse(pmbclean)
+```
+#biar gak error 10
+```{r}
+pmbclean$year <- lubridate::year(pmbclean$Tanggal.Daftar)
+pmbclean$yday <- yday(pmbclean$Tanggal.Daftar)
+pmbclean$quarter <- quarter(pmbclean$Tanggal.Daftar)
+pmbclean$month <- lubridate::month(pmbclean$Tanggal.Daftar)
+pmbclean$day <- lubridate::day(pmbclean$Tanggal.Daftar)
+#pmbclean$weekdays <- weekdays(pmbclean$Tanggal.Daftar)
+glimpse(pmbclean)
+
+```
+
+#biar gak error 11
+```{r}
+set.seed(100)
+train <- pmbclean[pmbclean$Program.Studi == 'SISTEM INFORMASI (S-1)',]
+test <- pmbclean[pmbclean$Program.Studi == 'MANAJEMEN (S-1)',]
+
+dim(train) #terdapat 3820 data SI sebagai train
+dim(test)  #terdapat 1095 data MN sebagai test
+
+```
+#biar gak error 12
+```{r}
+glimpse(train)
+glimpse(test)
+```
+
+#biar gak error 13
+
+#Model Evaluasi Matrik
+```{r}
+mape <- function(actual,pred){
+  mape <- mean(abs((actual - pred)/actual))*100
+  return(mape)
+}
+```
+#biar gak error 14
+
+###### Random Forest START BRO !!! ######
+```{r}
+set.seed(100)
+rf <- randomForest(Jumlah.Mhs ~ Jumlah.Grade.A + year + yday + quarter + month + day, data=train)
+rf
+```
+#biar gak error 15
+ 
+Berdasarkan hasil model di atas bisa dilihat bahwa nilai dari MSR 0,05 untuk prediksi jumlah mahasiswa.
+
+Mengevaluasi model training dan data pengujian
+
+```{r}
+predictions <- predict(rf, newdata = train)
+mape(train$Jumlah.Mhs, predictions)
+
+predictions <- predict(rf, newdata = test)
+mape(test$Jumlah.Mhs, predictions)
+```
+
+dari hasil diatas bisa dilihat bahwa MAPE adalah 4,6% pada data training, sedangkan pada data testing naik menjadi 5,19%. Terlihat bahwa data training tidak mengeneralisasi data testning, sehingga model ini kurang kuat. Maka langkah selanjutnya adalah merevisi model tsb.
+
+```{r}
+varImpPlot(rf)
+```
+#biar gak error 16
+
+#model revisi
+```{r}
+set.seed(100)
+rf_revised <- randomForest(Jumlah.Mhs ~ Jumlah.Grade.A + year + yday,  data=train)
+rf_revised
+```
+#biar gak error 17 (Done)
+
+```{r}
+predictions <- predict(rf_revised, newdata = train)
+mape(train$Jumlah.Mhs, predictions)
+
+predictions <- predict(rf_revised, newdata = test)
+mape(test$Jumlah.Mhs, predictions)
+```
+
+Output diatas menunjukkan bahwa MAPE adalah 4% (4.521049) pada data training dan data testing (4.987843). 
+
+##Random FOREST Model 2
+##Random FOREST Model 2 dengan bulan feb 2010 (train) dan 
+#kalo tetap 7656 lihat ke train_rf -> pmbnew liat pelan" ke atas  
+```{r}
+train_rf <- pmbnew[pmbnew$Tanggal.Daftar >= dmy("01-02-2010") & pmbnew$Tanggal.Daftar < dmy("01-04-2018"),]
+test_rf <- pmbnew[pmbnew$Tanggal.Daftar >= dmy("01-04-2018"),]
+
+dim(train_rf) #data testing ada 7654 dan 10 kolom
+dim(test_rf) #data training ada 1957 dan 10 kolom
+
+glimpse(train_rf)
+glimpse(test_rf)
+```
+#nah kalo diatas udah 7654 (train) dan 1957 (test) dibawah ini pasti dah bisa di proses tanpa error NA[1.0.1]
+```{r}
+set.seed(100)
+
+rf.fitted <- randomForest(Jumlah.Mhs ~.,data = train_rf,
+                          ntree = 300,
+                          mtry = 3 ,
+                          importance=TRUE,
+                          proximity=TRUE)
+                   
+```
+
+```{r}
+rf.fitted
+```
+
+
+#Model Evaluasi Matrik
+```{r}
+mape <- function(actual,pred){
+  mape <- mean(abs((actual - pred)/actual))*100
+  return(mape)
+}
+```
+
+```{r}
+predictions <- predict(rf.fitted, newdata = train_rf)
+mape(train_rf$Jumlah.Mhs, predictions)
+
+predictions <- predict(rf.fitted, newdata = test_rf)
+mape(test_rf$Jumlah.Mhs, predictions)
+```
+
+Data training tidak bisa mengeneralisasi data test, maka model harus di perbaiki.
+
+
+```{r}
+#CARET TIME #agak lama karna banyak pohon 300
+set.seed(100)
+
+rf.fitted1 <- randomForest(Jumlah.Mhs ~. -Kode.Sekolah + Nama.Kota , data = train_rf,
+                          ntree = 300,
+                          mtry = 8,
+                          importance=TRUE,
+                          proximity=TRUE)
+                   
+```
+
+```{r}
+rf.fitted1
+# hasil regresi random forest dengan mengambil 300 pohon sebagai sampel menggunakan seluruh variabel jumlah mahasiswa dan mengecualikan kode sekolah dan nama kota untuk di uji coba  .dengan Jumlah variabel yang dicoba di setiap pemisahan sebanyak 8 didapatkan hasil variabel 98.54% 
+```
+
+```{r}
+predictions1 <- predict(rf.fitted1, newdata = train_rf)
+mape(train_rf$Jumlah.Mhs, predictions1)
+
+predictions1 <- predict(rf.fitted1, newdata = test_rf)
+mape(test_rf$Jumlah.Mhs, predictions1)
+```
+
+#Output diatas menunjukkan bahwa MAPE adalah 1% pada data training dan data testing. Kesamaan hasil ini adalah salah satu indikator yang menunjukkan bahwa model ini kuat dan dapat mengeneralisasi dengan baik. Ada juga sedikit penurunan pada MAPE dari model sebelumnya, dan menunjukkan bahwa model yang sudah direvisi bekerja dengan baik.
+
+```{r}
+plot(rf.fitted1)
+```
+
+```{r}
+varImpPlot(rf.fitted1)
+```
+```{r}
+predictions1 <- predict(rf.fitted1, newdata = test_rf)
+head(predictions1)
+
+view(predictions1)
+```
+
+
+
+```{r}
+plot(predictions1)
+```
+
+
+#######################################
+Random Forest 3
+#######################################
+create features and target
+```{r}
+X <- pmbnew %>%
+  select(Program.Studi, Jumlah.Grade.A, Jumlah.Grade.B, Jumlah.Grade.C, Jumlah.Grade.D, Kode.Sekolah, Nama.Sekolah, Nama.Kota)
+
+y <- pmbnew$Jumlah.Mhs
+
+```
+
+#bagi data jadi data training dan test
+```{r}
+index <- createDataPartition(y, p=0.75, list=FALSE)
+X_train <- X[ index, ]
+X_test <- X[-index, ]
+
+y_train <- y[index]
+y_test<-y[-index]
+
+head(y_test)
+head(y_train)
+```
+
+train model
+```{r}
+regr <- randomForest(x = X_train, y = y_train , maxnodes = 10, ntree = 10)
+```
+
+```{r}
+regr
+```
+
+
+#buat prediksi
+```{r}
+predictions <- predict(regr, X_test)
+
+result <- X_test
+result['Jumlah Mhs'] <- y_test
+result['prediction']<-  predictions
+
+head(result)
+view(result)
+```
+
+#Visualisasi untuk prediksi Jumlah Grade A
+```{r}
+ggplot(  ) + 
+  geom_point( aes(x = X_test$Jumlah.Grade.A, y = y_test, color = 'red', alpha = 0.5) ) + 
+  geom_point( aes(x = X_test$Jumlah.Grade.A , y = predictions, color = 'blue',  alpha = 0.5)) + 
+  labs(x = "Jumlah Grade A", y = "Jumlah Mhs", color = "", alpha = 'Transperency') +
+  scale_color_manual(labels = c( "Predicted", "Real"), values = c("blue", "red")) 
+```
+#Visualisasi untuk prediksi Jumlah Grade B #grade paling mantap untuk prediksi
+```{r}
+ggplot(  ) + 
+  geom_point( aes(x = X_test$Jumlah.Grade.B, y = y_test, color = 'red', alpha = 0.5) ) + 
+  geom_point( aes(x = X_test$Jumlah.Grade.B , y = predictions, color = 'blue',  alpha = 0.5)) + 
+  labs(x = "Jumlah Grade B", y = "Jumlah Mhs", color = "", alpha = 'Transperency') +
+  scale_color_manual(labels = c( "Predicted", "Real"), values = c("blue", "red")) 
+```
+
+#Menghitung MAE
+```{r}
+library(Metrics)
+paste0('MAE: ' , mae(y_test,predictions) )
+```
+#Menghitung Mean Square Error
+```{r}
+paste0('MSE: ' ,caret::postResample(predictions , y_test)['RMSE']^2 )
+```
+#Menghitung Nilai Rsquared
+```{r}
+paste0('R2: ' ,caret::postResample(predictions , y_test)['Rsquared'] )
+```
+#   Nilai MSE dan MAE dari model sangat baik, yaitu dibawah 5%, dengan tingkat akurasi model hampir 98%
+
+
+
+Tuning Parameter
+digunakan untuk mencari besaran node dan tree yang terbaik dari model
+#Menyiapkan nilai N yang lebih sedikit
+```{r}
+N=500 #length(X_train)
+X_train_ = X_train[1:N , ]
+y_train_ = y_train[1:N]
+
+seed <-7
+metric<-'RMSE'
+
+customRF <- list(type = "Regression", library = "randomForest", loop = NULL)
+
+customRF$parameters <- data.frame(parameter = c("maxnodes", "ntree"), class = rep("numeric", 2), label = c("maxnodes", "ntree"))
+
+customRF$grid <- function(x, y, len = NULL, search = "grid") {}
+
+customRF$fit <- function(x, y, wts, param, lev, last, weights, classProbs, ...) {
+  randomForest(x, y, maxnodes = param$maxnodes, ntree=param$ntree, ...)
+}
+
+customRF$predict <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+   predict(modelFit, newdata)
+customRF$prob <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+   predict(modelFit, newdata, type = "prob")
+customRF$sort <- function(x) x[order(x[,1]),]
+customRF$levels <- function(x) x$classes
+```
+
+#Set grid parameter
+```{r}
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search='grid')
+```
+
+
+```{r}
+tunegrid <- expand.grid(.maxnodes=c(70,80,90,100), .ntree=c(900, 1000, 1100))
+set.seed(seed)
+```
+
+#train model 
+#ini agak lama proses memakan cpu dan ram
+```{r}
+rf_gridsearch <- train(x=X_train_, y=y_train_, method=customRF, metric=metric, tuneGrid=tunegrid, trControl=control)
+```
+
+#hasil plot
+```{r}
+plot(rf_gridsearch)
+```
+#Menentukan parameter yang terbaik
+```{r}
+rf_gridsearch$bestTune
+```
+#Parameter terbaik dari model pada maxnodes 100 dan ntree 900 #revisi punya bapak..
+
+
+#Menampilkan variabel yang paling penting dari model prediksi
+```{r}
+varImpPlot(rf_gridsearch$finalModel, main ='Feature importance')
+```
+
